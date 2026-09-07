@@ -22,6 +22,6 @@ BMS_State select_mode(Cell cell);
 
  */
 
-void execute_state(Cell *cell);
+float execute_state(Cell *cell);
 
 #endif

@@ -1,141 +1,97 @@
-# EV-Battery-Management-System logic simulator
-C-based battery management system simulator with state monitoring, protection logic, and planned STM32 sensor and motor-control integration.
+## EV Battery Management System simulator v2.0- Hardware Integration
 
-## Overview
+The STM32 version uses a NUCLEO-F401RE.
 
-This project is a C-based battery management system simulator that I am developing before moving the logic onto an STM32.
+The TMP102 is read over I2C and provides the temperature value used by the BMS state logic.
 
-The goal of the current version is to build and test the basic BMS logic separately from the hardware. The program represents a battery cell using voltage, current, temperature, state of charge, and an operating state, then decides how the system should react based on those values.
+The INA219 is also connected over I2C. Bus voltage is read directly from the bus voltage register. Current is calculated from the shunt voltage register using the onboard 0.1 ohm shunt resistor and Ohm's law.
 
-The current version is a **desktop simulation**. Sensor measurements are still represented using arbitrary values. The next step is to move the project into STM32CubeIDE and start replacing those values with real sensor and ADC readings.
+A potentiometer is connected to the STM32 ADC and represents the requested motor or LED output with a PWM.
 
-## Current Version
+The onboard user button is configured as an external interrupt. A single click switches potentiometer control between the motor and LEDs, while a double click toggles between FULL_POWER and LOW_POWER.
 
-**V1 – Desktop C Simulation**
+UART output is used to monitor values such as voltage, current, temperature, state of charge, ADC input, control mode, throttle limit, and PWM output during testing.
 
-The current version includes:
+Example:
 
-* A battery cell represented using a C `struct`
-* Voltage, current, temperature, state of charge, and BMS state
-* Four operating states:
-
-  * `NORMAL`
-  * `WARNING`
-  * `FAULT`
-  * `SHUTDOWN`
-* State transitions based on temperature and state of charge
-* Different output-limit values depending on the BMS state
-* Console messages showing how the system reacts
-* Simulated state-of-charge decrease over time
-* Separate `.c` and `.h` files for the different parts of the program
-
-The sensor values are currently hard-coded for testing. They will later be replaced by functions that read the STM32 hardware.
-
-The output limits in V1 are also only software placeholders. They are not currently controlling real current or hardware. In the STM32 version, I plan to use these states to limit the allowed motor output and control external LEDs.
-
-## BMS State Logic
-
-For now, I am using temporary thresholds so that I can test the state machine:
-
-* `NORMAL` – Temperature below 45°C and SOC above 20%
-* `WARNING` – Temperature is 45°C or higher, or SOC is 20% or lower
-* `FAULT` – Temperature is 55°C or higher
-* `SHUTDOWN` – Temperature is 60°C or higher, or SOC reaches 0%
-
-These are **demonstration values**, not real battery safety limits.
-
-The thresholds are currently chosen so that the different states can be tested easily. Once the project uses an actual battery system, they would need to be changed based on the battery chemistry, cell specifications, and sensor calibration.
-
-Each state also has a different placeholder output limit:
-
-* `NORMAL` – 300
-* `WARNING` – 200
-* `FAULT` – 50
-* `SHUTDOWN` – 0
-
-These values are only being used to represent progressively tighter limits between the different states. They are not calibrated current values yet.
+Voltage: 7.84 V
+Current: 0.327 A
+Temperature: 24.31 C
+Charge: 99.94 %
+Power mode: FULL POWER
+ADC: 3086
+Control mode: MOTOR
+Throttle limit: 1.00
+PWM: 3086
 
 ## Program Structure
 
-I split the project into multiple files to keep the main parts separate:
+The project is separated into several modules:
+─ bms_action.c
+─ cell.c
+─ control.c
+─ measure.c
+─ main.c
 
-* `main.c` runs the main loop
-* `cell.c / cell.h` stores the cell data and updates values such as state of charge
-* `bms_action.c / bms_action.h` handles the state logic and the behavior for each state
-* `bms_types.h` defines the different BMS states
-* `measure.c / measure.h` will later contain the hardware measurement functions
+cell.c stores and updates the battery data.
 
-The program repeatedly updates the cell, checks its current conditions, selects a BMS state, and then runs the behavior for that state.
+measure.c handles the TMP102 and INA219 measurements.
 
-For V1, the cell begins with temporary values such as:
+bms_action.c contains the BMS state selection and output limiting logic.
 
-```c
-c.voltage = 3.3;
-c.current = 160.0;
-c.temp = 40.0;
-c.state_of_charge = 100.0;
-c.state = NORMAL;
-```
+control.c handles the button interrupt, single/double-click detection, power modes, and control switching.
 
-The state of charge is then reduced slightly during each loop iteration to simulate battery discharge.
+main.c connects the different parts together and updates the ADC, PWM outputs, UART telemetry, sensors, and BMS state.
 
-A 10-second delay is used in the desktop version so that the changing values are easier to observe in the terminal. This is only for simulation and will be changed when the project moves onto the STM32.
+## Development Process
 
-## Planned STM32 Integration
+I intentionally developed the project in stages.
 
-The next major step is moving the project into STM32CubeIDE.
+V1 was a desktop C simulation with hard-coded values and placeholder output limits. Its main purpose was to make sure the state logic and program structure worked before hardware was introduced.
 
-The planned prototype will use:
+V2 moved the same logic onto the STM32 and replaced the simulated values with sensor readings, ADC input, PWM output, interrupts, and UART debugging and mapped the values onto hardware outputs. It also allowed the user to control the intensity of LEDs and the motor and added a low power mode to further save battery.
 
-* STM32 NUCLEO-F401RE
-* Temperature sensor
-* Potentiometer connected to the STM32 ADC
-* LEDs for visual state indication
-* PWM output
-* DC motor controlled through a transistor
-* Flyback diode
-* Separate 9 V motor supply
+Developing the software and hardware separately made it easier to isolate problems during integration instead of debugging the entire system at once.
 
-For the first hardware version, the temperature sensor will be used as a **controllable test input** rather than as a real battery-temperature measurement.
+Additionally, I changed the temperature thresholds that I had used in the previous software version into temperatures I could replicate on my own. 30C now caused fault and I could trigger it by putting my finger on the sensor for a couple seconds. 40C was the temperature it reached when I put the hot battery on top of the sensor so I used that to trigger a shutdown.
 
-For example, I can manually warm the sensor to test whether the software correctly moves through:
+## Current Status
 
-NORMAL to WARNING to FAULT to SHUTDOWN with some manually changeable temperatures I can achieve in my own environment.
+The temperature sensor, voltage measurement, ADC input, PWM generation, UART telemetry, state logic, button interrupt, control switching, and low-power mode were implemented and tested.
 
-The potentiometer will also be used as an adjustable ADC input. Its 12-bit ADC reading will represent the requested motor output, and the current BMS state will limit how much output is allowed. It will simulate the "Acceleration of the motor" as well since it allows us to manually control it. This way, when the current limit is set, it will consequently also limit the acceleration of the motor.
+The INA219 current-measurement software was also completed, but the physical current path still produced inconsistent results compared with a multimeter.
 
+During final motor integration, the MOSFET switching stage failed. The motor and STM32 PWM output had both been tested separately in my project before this, but the complete motor-driver stage was not successfully validated before the hardware stopped operating reliably.
 
-This means the first STM32 version will demonstrate the BMS protection logic through motor PWM rather than real closed-loop battery current limiting. Actual current measurement would require additional sensing hardware.
+Because of this, the final demo focuses on the parts of the STM32 system that were successfully validated.
 
-The motor-control circuit is being developed separately first so that I can test the PWM, ADC, transistor, and motor behavior before connecting it to the BMS logic.
+## Challenges
 
-The STM32 version will also handle `SHUTDOWN` differently from the desktop simulator. Instead of ending the program, the MCU will remain running while the controlled output is disabled so that the system can continue monitoring its inputs.
+### Challenge #1 : Motor Stage
+One of the hardest parts of the project was figuring out whether a problem was coming from the code or the hardware since there was room for a lot of integration induced bugs.
 
-## Next Steps
+The motor stage caused the most trouble because the PWM signal, MOSFET, wiring, and power supply all affected the final behavior. I tested the motor and PWM separately to narrow it down, but the MOSFET stage failed during the final integration.
 
-* Port the current C logic into STM32CubeIDE
-* Replace the simulated temperature with a real sensor reading
-* Read the potentiometer using the STM32 12-bit ADC
-* Connect the BMS states to PWM output limits
-* Add LED indication for the different states
-* Add blinking behavior for warning and shutdown
-* Integrate the STM32 motor-control circuit
-* Test each state transition using controlled inputs
-* Determine a more appropriate update rate for the embedded version
-* Replace the demonstration thresholds with values based on an actual battery system
+### Challenge #2 : Current Sensor
+The INA219 current reading was another issue. Voltage readings were working, but the current measurement did not agree with the multimeter. I went back through the datasheet and switched to their alternative approach, calculating current directly from the shunt-voltage register using Ohm's law.
 
 ## What I Learned
 
-So far, this project has helped me get more comfortable splitting a C program across multiple source and header files instead of keeping everything inside `main.c`.
+I think my favorite part of this project was going back to the datasheet and applying it directly to my project. It was oddly satisfying to find the solution to a problem directly from the manufacturer, almost like they had already anticipated the exact issue I was running into.
 
-One thing that gave me trouble was passing the `Cell` struct between functions. I kept mixing up when I needed `.` and when I needed `->`, and debugging that helped pointers and structs make a lot more sense to me.
+Also, integrating the `execute_state` and control logic really forced me to think about the order in which things needed to happen, especially since the logic was spread across different files. It taught me when separating functions makes the code easier to manage and when it can actually make things more complicated. I also had to think more carefully about which variables were being passed between functions and where they could be accessed.
 
-I also learned how separate `.c` files are compiled and linked together, which I had not really dealt with before this project.
+Additionally, this project taught me to separate measurements from control values. For example, current represents what the sensor actually measures, while the throttle limit represents what the BMS allows the system to request.
 
-Another thing I had to think about was the difference between a measurement and a control value. A measured current should represent what a sensor actually reads, while an output limit represents what the BMS allows the rest of the system to do. That distinction is something I plan to keep clearer when I move the project onto the STM32.
+The final motor-driver failure also reinforced the importance of validating hardware subsystems separately before full integration.
+
+## Future Improvements
+
+If I continue the project, the next priorities would be replacing the motor-driver MOSFET stage, using a more suitable motor power supply, validating the INA219 current path, improving the timing structure, and replacing the demonstration BMS thresholds with values based on a real battery system.
 
 ## Disclaimer
 
 This is an educational prototype for learning embedded systems and battery-management concepts.
 
-It has not been designed or validated for real battery protection or safety-critical use.
+The state thresholds, state-of-charge model, and output limits are demonstration values and have not been validated for real battery protection or safety-critical use.
+
